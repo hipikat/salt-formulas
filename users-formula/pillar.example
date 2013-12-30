@@ -6,6 +6,10 @@ users:
       - admin
     ssh_auth:
       - ssh-rsa PUBLICKEYKEYKEY
+    dotfiles:
+      destination: '/home/auser/dotfiles'
+      repository: 'git://github.com/auser/dotfiles'
+      install_cmd: 'bash ./install.sh'
 
 absent_users:
   - donald

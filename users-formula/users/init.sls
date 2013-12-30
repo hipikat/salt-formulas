@@ -39,6 +39,10 @@ include:
     {% if 'fullname' in user %}
     - fullname: {{ user['fullname'] }}
     {% endif %}
+    {% if 'hash' in user %}
+    - password: {{ user['hash'] }}
+    {% endif %}
+    - system: {{ user.get('system', False) }}
     - groups:
         - {{ name }}
       {% for group in user.get('groups', []) %}
@@ -104,6 +108,37 @@ ssh_auth_{{ name }}_{{ loop.index0 }}:
 {% endfor %}
 {% endif %}
 
+{% if 'dotfiles' in user %}
+{% set dotfiles_dir = home ~ '/.dotfiles' %}
+
+{{ dotfiles_dir }}:
+  file.directory:
+    - user: {{ name }}
+    - group: {{ name }}
+    - makedirs: True
+    - require:
+      - user: {{ name }}_user
+      {% for group in user.get('groups', []) %}
+      - group: {{ group }}_group
+      {% endfor %}
+
+{{ user['dotfiles']['repository'] }}_{{ name }}:
+  git.latest:
+    - name: {{ user['dotfiles']['repository'] }}
+    - target: {{ dotfiles_dir }}
+    - user: {{ name }}
+    - require:
+      - file: {{ dotfiles_dir }}
+
+{{ user['dotfiles']['install_cmd'] }}_{{ name }}:
+  cmd.wait:
+    - name: {{ user['dotfiles']['install_cmd'] }}
+    - user: {{ name }}
+    - cwd: {{ dotfiles_dir }}
+    - watch:
+      - git: {{ user['dotfiles']['repository'] }}_{{ name }}
+
+{% endif %}
 
 {% if 'sudouser' in user and user['sudouser'] %}
 sudoer-{{ name }}:
