@@ -160,6 +160,14 @@ sudoer-{{ name }}:
     - name: /etc/sudoers.d/{{ name }}
 {% endif %}
 
+# Install system packages requested by a user.
+# Yes, this fork to the users formula assumes system users are trusted.
+{% for pkg in user.get('uses_sys_packages', []) %}
+{{ name }}-sys_pkg-{{ pkg }}:
+  pkg.installed:
+    - name: {{ pkg }}
+{% endfor %}
+
 {% endfor %}
 
 {% for user in pillar.get('absent_users', []) %}
