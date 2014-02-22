@@ -2,13 +2,19 @@ include:
   - users.sudo
 
 {% for name, user in pillar.get('users', {}).items() %}
-{% if user == None %}
-{% set user = {} %}
-{% endif %}
-{% set home = user.get('home', "/home/%s" % name) %}
+{%- if user == None -%}
+{%- set user = {} -%}
+{%- endif -%}
+{%- set home = user.get('home', "/home/%s" % name) -%}
+
+{%- if 'prime_group' in user and 'name' in user['prime_group'] %}
+{%- set user_group = user.prime_group.name -%}
+{%- else -%}
+{%- set user_group = name -%}
+{%- endif %}
 
 {% for group in user.get('groups', []) %}
-{{ group }}_group:
+{{ name }}_{{ group }}_group:
   group:
     - name: {{ group }}
     - present
@@ -18,24 +24,30 @@ include:
   file.directory:
     - name: {{ home }}
     - user: {{ name }}
-    - group: {{ name }}
+    - group: {{ user_group }}
     - mode: 0755
     - require:
       - user: {{ name }}
-      - group: {{ name }}
+      - group: {{ user_group }}
   group.present:
-    - name: {{ name }}
-    {% if 'uid' in user -%}
+    - name: {{ user_group }}
+    {%- if 'prime_group' in user and 'gid' in user['prime_group'] %}
+    - gid: {{ user['prime_group']['gid'] }}
+    {%- elif 'uid' in user %}
     - gid: {{ user['uid'] }}
-    {% endif %}
+    {%- endif %}
   user.present:
     - name: {{ name }}
     - home: {{ home }}
     - shell: {{ user.get('shell', '/bin/bash') }}
     {% if 'uid' in user -%}
     - uid: {{ user['uid'] }}
-    {% endif %}
+    {% endif -%}
+    {% if 'prime_group' in user and 'gid' in user['prime_group'] -%}
+    - gid: {{ user['prime_group']['gid'] }}
+    {% else -%}
     - gid_from_name: True
+    {% endif -%}
     {% if 'fullname' in user %}
     - fullname: {{ user['fullname'] }}
     {% endif %}
@@ -44,54 +56,55 @@ include:
     {% endif %}
     - system: {{ user.get('system', False) }}
     - groups:
-        - {{ name }}
-      {% for group in user.get('groups', []) %}
-        - {{ group }}
+      - {{ user_group }}
+      {% for group in user.get('groups', []) -%}
+      - {{ group }}
       {% endfor %}
     - require:
-        - group: {{ name }}
-      {% for group in user.get('groups', []) %}
-        - group: {{ group }}
+      - group: {{ user_group }}
+      {% for group in user.get('groups', []) -%}
+      - group: {{ group }}
       {% endfor %}
 
 user_keydir_{{ name }}:
   file.directory:
     - name: {{ user.get('home', '/home/{0}'.format(name)) }}/.ssh
     - user: {{ name }}
-    - group: {{ name }}
+    - group: {{ user_group }}
     - makedirs: True
-    - mode: 744
+    - mode: 700
     - require:
       - user: {{ name }}
-      - group: {{ name }}
-      {% for group in user.get('groups', []) %}
+      - group: {{ user_group }}
+      {%- for group in user.get('groups', []) %}
       - group: {{ group }}
-      {% endfor %}
+      {%- endfor %}
 
-  {% if 'privkey' in user %}
+  {% if 'ssh_keys' in user %}
+  {% set key_type = 'id_' + user.get('ssh_key_type', 'rsa') %}
 user_{{ name }}_private_key:
   file.managed:
-    - name: {{ user.get('home', '/home/{0}'.format(name)) }}/.ssh/id_rsa
+    - name: {{ user.get('home', '/home/{0}'.format(name)) }}/.ssh/{{ key_type }}
     - user: {{ name }}
-    - group: {{ name }}
+    - group: {{ user_group }}
     - mode: 600
-    - source: salt://keys/{{ user['privkey'] }}
+    - contents_pillar: users:{{ name }}:ssh_keys:privkey
     - require:
       - user: {{ name }}_user
       {% for group in user.get('groups', []) %}
-      - group: {{ group }}_group
+      - group: {{ name }}_{{ group }}_group
       {% endfor %}
 user_{{ name }}_public_key:
   file.managed:
-    - name: {{ user.get('home', '/home/{0}'.format(name)) }}/.ssh/id_rsa.pub
+    - name: {{ user.get('home', '/home/{0}'.format(name)) }}/.ssh/{{ key_type }}.pub
     - user: {{ name }}
-    - group: {{ name }}
+    - group: {{ user_group }}
     - mode: 644
-    - source: salt://keys/{{ user['privkey'] }}.pub
+    - contents_pillar: users:{{ name }}:ssh_keys:privkey
     - require:
       - user: {{ name }}_user
       {% for group in user.get('groups', []) %}
-      - group: {{ group }}_group
+      - group: {{ name }}_{{ group }}_group
       {% endfor %}
   {% endif %}
 
@@ -147,13 +160,17 @@ sudoer-{{ name }}:
     - user: root
     - group: root
     - mode: '0440'
+{% if 'sudo_rules' in user %}
 /etc/sudoers.d/{{ name }}:
   file.append:
-  - text:
-    - "{{ name }}    ALL=(ALL)  NOPASSWD: ALL"
-  - require:
-    - file: sudoer-defaults
-    - file: sudoer-{{ name }}
+    - text:
+      {% for rule in user['sudo_rules'] %}
+      - "{{ name }} {{ rule }}"
+      {% endfor %}
+    - require:
+      - file: sudoer-defaults
+      - file: sudoer-{{ name }}
+{% endif %}
 {% else %}
 /etc/sudoers.d/{{ name }}:
   file.absent:
